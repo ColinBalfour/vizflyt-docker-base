@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# Clone the repository
+git clone https://github.com/High-Speed-Drone-MQP/VizFlyt.git && cd VizFlyt
+
+# Create a python venv environment with Python 3.10
+python3 -m venv .vizflyt
+
+# Activate the environment
+source .vizflyt/bin/activate
+
+# Upgrade pip
+python3 -m pip install --upgrade pip
+
+
+pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
+
+pip install --upgrade "numpy<2"
+
+# Install tiny-cuda-nn (for optimized CUDA operations)
+pip install wheel ninja
+pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
+
+
+cd nerfstudio
+
+# Upgrade pip and setuptools before installing dependencies
+pip install --upgrade pip setuptools
+
+# Install Nerfstudio in editable mode
+pip install -e .
+
+
+
+cd ..
+
+pip install transforms3d gdown pyquaternion
+
+# edit the vizflyt package setup.cfg to use the venv
+source setup_cfg.sh
+
+cd vizflyt_ws/
+
+colcon build

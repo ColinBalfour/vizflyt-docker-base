@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# VizFlyt container setup (simple & robust):
+# - Uses global venv at /opt/vizflyt/.vizflyt
+# - Installs tiny-cuda-nn at runtime if missing (GPU required)
+# - Optional: installs nerfstudio in editable mode from repo
+# - Writes setup.cfg with executable=/opt/vizflyt/.vizflyt/bin/python
+# - Runs colcon build
+
+set -e
+set -o pipefail
+
+REPO="/VizFlyt"                 # default mount point
+EDITABLE_NERF=0
+TCNN_ARCHS="${TCNN_CUDA_ARCHITECTURES:-}"   # optional override (e.g. "86")
+
+# Args: path, --editable-nerfstudio, --tcnn-arch=XX
+for arg in "$@"; do
+  case "$arg" in
+    --editable-nerfstudio) EDITABLE_NERF=1 ;;
+    --tcnn-arch=*) TCNN_ARCHS="${arg#*=}" ;;
+    /*|./*|../*) REPO="$arg" ;;
+  esac
+done
+
+echo "[vizflyt-setup] repo: $REPO  editable-nerf: $EDITABLE_NERF  tcnn-archs: ${TCNN_ARCHS:-<auto>}"
+
+# --- Basic checks ---
+if [ ! -d "$REPO" ] || [ -z "$(ls -A "$REPO" 2>/dev/null)" ]; then
+  echo "[vizflyt-setup] ERROR: '$REPO' is missing or empty. Mount with:  -v \$HOME/VizFlyt:/VizFlyt"
+  exit 1
+fi
+
+# --- Source ROS (best effort) ---
+if [ -f /opt/ros/humble/setup.bash ]; then
+  # shellcheck disable=SC1091
+  source /opt/ros/humble/setup.bash || true
+fi
+
+# --- Activate the global venv we baked into the image ---
+if [ -f /opt/vizflyt/.vizflyt/bin/activate ]; then
+  # shellcheck disable=SC1091
+  source /opt/vizflyt/.vizflyt/bin/activate
+else
+  echo "[vizflyt-setup] ERROR: /opt/vizflyt/.vizflyt not found; rebuild the image."
+  exit 1
+fi
+
+PYTHON_EXEC="/opt/vizflyt/.vizflyt/bin/python"
+echo "[vizflyt-setup] setup.cfg will use: $PYTHON_EXEC"
+
+# --- tiny-cuda-nn: install at runtime if missing (GPU required) ---
+if python -c 'import tinycudann' >/dev/null 2>&1; then
+  echo "[vizflyt-setup] tiny-cuda-nn present."
+else
+  echo "[vizflyt-setup] installing tiny-cuda-nn (this may take several minutes)..."
+  # ensure CUDA is visible before attempting the build (won't hard-fail early)
+  if python -c 'import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)'; then
+    pip install --no-cache-dir ninja
+    if [ -n "$TCNN_ARCHS" ]; then
+      TCNN_CUDA_ARCHITECTURES="$TCNN_ARCHS" pip install --no-cache-dir \
+        git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
+    else
+      pip install --no-cache-dir \
+        git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
+    fi
+  else
+    echo "[vizflyt-setup] WARN: torch.cuda.is_available()==False; skipping tiny-cuda-nn build. Re-run with --gpus all if you need it."
+  fi
+fi
+
+# --- Optional: nerfstudio editable from your repo ---
+if [ "$EDITABLE_NERF" -eq 1 ] && [ -d "$REPO/nerfstudio" ]; then
+  echo "[vizflyt-setup] nerfstudio editable from $REPO/nerfstudio (no deps)"
+  pip install -e "$REPO/nerfstudio" --no-deps
+fi
+
+# --- Write setup.cfg using the global venv python ---
+PKG_CFG_DIR="$REPO/vizflyt_ws/src/vizflyt"
+if [ -d "$PKG_CFG_DIR" ]; then
+  mkdir -p "$PKG_CFG_DIR"
+  cat > "$PKG_CFG_DIR/setup.cfg" <<EOF
+[develop]
+script_dir=\$base/lib/vizflyt
+[install]
+install_scripts=\$base/lib/vizflyt
+[build_scripts]
+executable = $PYTHON_EXEC
+EOF
+  echo "[vizflyt-setup] wrote $PKG_CFG_DIR/setup.cfg"
+else
+  echo "[vizflyt-setup] WARN: $PKG_CFG_DIR not found; skipping setup.cfg."
+fi
+
+# --- colcon build (if workspace exists) ---
+if [ -d "$REPO/vizflyt_ws" ]; then
+  echo "[vizflyt-setup] colcon build..."
+  cd "$REPO/vizflyt_ws"
+  colcon build 
+  echo "[vizflyt-setup] done. For new shells: source $REPO/vizflyt_ws/install/setup.bash"
+else
+  echo "[vizflyt-setup] WARN: $REPO/vizflyt_ws not found; skipping build."
+fi
+
+echo "[vizflyt-setup] complete."
+
+

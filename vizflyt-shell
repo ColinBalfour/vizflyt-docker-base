@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Keep the container alive even if setup scripts fail.
+set -o pipefail
+
+warn() { echo "[vizflyt-shell] WARN: $*"; }
+
+# Source ROS (best effort)
+if [ -f /opt/ros/humble/setup.bash ]; then
+  # shellcheck disable=SC1091
+  source /opt/ros/humble/setup.bash || warn "could not source /opt/ros/humble/setup.bash"
+else
+  warn "ROS setup not found at /opt/ros/humble"
+fi
+
+# Activate global venv (best effort)
+if [ -f /opt/vizflyt/.vizflyt/bin/activate ]; then
+  # shellcheck disable=SC1091
+  source /opt/vizflyt/.vizflyt/bin/activate || warn "could not activate /opt/vizflyt/.vizflyt"
+else
+  warn "Global venv missing at /opt/vizflyt/.vizflyt"
+fi
+
+# Source overlay if present (best effort)
+if [ -f /VizFlyt/vizflyt_ws/install/setup.bash ]; then
+  # shellcheck disable=SC1091
+  source /VizFlyt/vizflyt_ws/install/setup.bash || warn "could not source /VizFlyt/vizflyt_ws/install/setup.bash"
+fi
+
+# Hand off to whatever command was asked (default: /bin/bash from CMD)
+exec "$@"
+

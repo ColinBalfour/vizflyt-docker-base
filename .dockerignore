@@ -1,0 +1,19 @@
+# Git
+.git
+.gitignore
+
+# Python clutter
+**/__pycache__/
+**/*.pyc
+.vizflyt/
+*.egg-info/
+
+# ROS build outputs (if present locally)
+vizflyt_ws/build/
+vizflyt_ws/install/
+vizflyt_ws/log/
+
+# Big data
+data/
+outputs/
+checkpoints/
